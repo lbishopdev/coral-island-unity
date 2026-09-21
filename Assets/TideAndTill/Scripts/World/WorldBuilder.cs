@@ -102,8 +102,12 @@ namespace TideAndTill
                     int b = a + 1;
                     int c = a + xCount + 1;
                     int d = c + 1;
-                    triangles[t++] = a; triangles[t++] = d; triangles[t++] = c;
-                    triangles[t++] = a; triangles[t++] = b; triangles[t++] = d;
+                    // Order each triangle so its face normal points up. A
+                    // downward-facing MeshCollider is one-sided: PhysX ignores
+                    // back faces, so the character controller finds no ground
+                    // there and falls through the island.
+                    triangles[t++] = a; triangles[t++] = c; triangles[t++] = d;
+                    triangles[t++] = a; triangles[t++] = d; triangles[t++] = b;
                 }
             }
 
