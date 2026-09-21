@@ -20,6 +20,21 @@ namespace TideAndTill
         private float stride;
         private float toolSwing;
         private Vector3 lastSafePosition;
+        private float airborneTime;
+
+        /// <summary>
+        /// Longest the character controller will tolerate without a ground
+        /// contact before grounding recovery kicks in. If the terrain collider
+        /// ever stops reporting a surface under the player, this snaps the
+        /// player back down instead of letting them fall out of the world.
+        /// </summary>
+        private const float MaxAirborneTime = 1.5f;
+
+        /// <summary>
+        /// How far below the analytic terrain height the player may sit before
+        /// grounding recovery treats them as buried in the ground.
+        /// </summary>
+        private const float SunkenTolerance = 0.35f;
 
         public string InteractionPrompt => nearbyInteractable == null ? string.Empty : nearbyInteractable.Prompt;
 
@@ -123,25 +138,19 @@ namespace TideAndTill
             else if (movement.sqrMagnitude < 0.02f)
                 state.RegenerateStamina(Time.deltaTime * 1.2f);
 
-            if (controller.isGrounded && verticalVelocity < 0f) verticalVelocity = -2.4f;
-            else verticalVelocity += Physics.gravity.y * Time.deltaTime;
+            if (controller.isGrounded)
+            {
+                airborneTime = 0f;
+                if (verticalVelocity < 0f) verticalVelocity = -2.4f;
+            }
+            else
+            {
+                airborneTime += Time.deltaTime;
+                verticalVelocity += Physics.gravity.y * Time.deltaTime;
+            }
 
-            Vector3 before = transform.position;
             controller.Move((movement * speed + Vector3.up * verticalVelocity) * Time.deltaTime);
-
-            float nx = transform.position.x / 42f;
-            float nz = transform.position.z / 32f;
-            if (nx * nx + nz * nz > 0.94f || transform.position.y < -2.5f)
-            {
-                controller.enabled = false;
-                transform.position = lastSafePosition;
-                controller.enabled = true;
-                verticalVelocity = 0f;
-            }
-            else if (controller.isGrounded)
-            {
-                lastSafePosition = transform.position;
-            }
+            RecoverGrounding();
 
             if (movement.sqrMagnitude > 0.025f)
             {
@@ -153,6 +162,58 @@ namespace TideAndTill
             {
                 stride = Mathf.Lerp(stride, Mathf.Round(stride / Mathf.PI) * Mathf.PI, Time.deltaTime * 4f);
             }
+        }
+
+        /// <summary>
+        /// Keeps the character controller attached to the island.
+        /// Leaving the playable bounds or dropping under the world is a hard
+        /// failure, so the player returns to the last known-good position.
+        /// Sinking below the terrain surface, or failing to find any surface for
+        /// longer than <see cref="MaxAirborneTime"/>, recovers locally by
+        /// standing the player back on the terrain column they are over. Without
+        /// this second path a one-sided or missing ground collider leaves the
+        /// player falling forever instead of recovering.
+        /// </summary>
+        private void RecoverGrounding()
+        {
+            float nx = transform.position.x / 42f;
+            float nz = transform.position.z / 32f;
+            bool strayed = nx * nx + nz * nz > 0.94f;
+            bool fellThrough = transform.position.y < -2.5f;
+
+            if (strayed || fellThrough)
+            {
+                RecoverTo(lastSafePosition);
+                return;
+            }
+
+            float ground = WorldBuilder.SampleHeight(transform.position.x, transform.position.z);
+            bool recoverable = ground > -0.4f;
+            // The mesh is a discretisation of SampleHeight, so allow a little
+            // slack before treating the player as buried in the terrain.
+            bool sunken = transform.position.y < ground - SunkenTolerance;
+            bool lostGround = airborneTime > MaxAirborneTime;
+
+            if (recoverable && (sunken || lostGround))
+            {
+                RecoverTo(new Vector3(transform.position.x, ground + 0.15f, transform.position.z));
+            }
+            else if (controller.isGrounded)
+            {
+                lastSafePosition = transform.position;
+            }
+        }
+
+        private void RecoverTo(Vector3 position)
+        {
+            controller.enabled = false;
+            transform.position = position;
+            controller.enabled = true;
+            verticalVelocity = 0f;
+            airborneTime = 0f;
+            // Remember where recovery landed so the guard can never loop on a
+            // stale position that is itself unreachable.
+            lastSafePosition = position;
         }
 
         private void UpdateTarget()
@@ -215,6 +276,7 @@ namespace TideAndTill
             controller.enabled = true;
             lastSafePosition = position;
             verticalVelocity = 0f;
+            airborneTime = 0f;
         }
     }
 

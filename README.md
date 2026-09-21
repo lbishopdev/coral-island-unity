@@ -65,6 +65,21 @@ Assets/TideAndTill/
     └── TideAndTillBootstrap.cs   # One-click runtime composition
 ```
 
+## Verification
+
+`Tools/verify_terrain_grounding.py` is a headless check for the two invariants the
+island depends on: terrain triangles must face up, and grounding recovery must stay
+stable. It reads the triangle winding straight out of `WorldBuilder.cs`, rebuilds the
+mesh heights from a Python port of `SampleHeight`, and then re-uses the
+`PlayerController` grounding contract to confirm the player can find ground, lands,
+settles, and recovers. It needs no Unity install:
+
+```bash
+python3 Tools/verify_terrain_grounding.py
+```
+
+It runs in a few seconds and exits non-zero on failure, so it is usable as a CI gate.
+
 ## Suggested next production steps
 
 1. Replace procedural proxy models with an original authored art kit and animation rig.
